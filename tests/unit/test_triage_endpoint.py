@@ -447,4 +447,212 @@ class TestTriageEndpoint:
         reset_shared_circuit_breaker()
 
 
+class TestObservabilityAndLogging:
+    """Step 12: Tests verifying safe structured logging, correlation IDs, and 3am diagnostics."""
+
+    def test_request_id_generated_and_returned_in_header(self, client):
+        """Verify that every response carries an X-Request-ID header generated if absent."""
+        payload = {
+            "id": "T-REQ-GEN",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Subject",
+            "body": "Body",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        resp = client.post("/triage", json=payload)
+        assert resp.status_code == 200
+        req_id = resp.headers.get("X-Request-ID")
+        assert req_id is not None
+        assert req_id.startswith("req_")
+        assert len(req_id) >= 10
+
+    def test_inbound_safe_request_id_preserved_in_header(self, client):
+        """Verify an inbound safe correlation ID is respected and echoed in X-Request-ID."""
+        payload = {
+            "id": "T-REQ-PRESERVE",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Subject",
+            "body": "Body",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        custom_id = "trace-correlation-id-abc-123"
+        resp = client.post("/triage", json=payload, headers={"X-Request-ID": custom_id})
+        assert resp.status_code == 200
+        assert resp.headers.get("X-Request-ID") == custom_id
+
+    def test_duplicate_requests_receive_distinct_request_ids(self, client):
+        """Verify duplicate requests for the same ticket receive distinct correlation IDs."""
+        payload = {
+            "id": "T-DUP-REQ",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Subject",
+            "body": "Body",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        r1 = client.post("/triage", json=payload)
+        r2 = client.post("/triage", json=payload)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        id1 = r1.headers.get("X-Request-ID")
+        id2 = r2.headers.get("X-Request-ID")
+        assert id1 is not None and id2 is not None
+        assert id1 != id2
+
+    def test_structured_logs_capture_lifecycle_and_operational_metadata(self, client, caplog):
+        """Verify structured logs emit lifecycle events with operational fields without data leakage."""
+        import logging
+        caplog.set_level(logging.INFO)
+
+        payload = {
+            "id": "T-1001",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "charged 249 without telling me",
+            "body": "i only paid 1 rupee to try the app. today 249 is gone. refund it.",
+            "purchases": [
+                {"id": "pay_A1", "type": "trial", "amount_inr": 1, "status": "successful", "at": "2026-09-01T09:00:00+05:30"},
+                {"id": "pay_A2", "type": "renewal", "amount_inr": 249, "status": "successful", "at": "2026-09-02T09:00:00+05:30"},
+            ],
+            "app_opens_since_renewal": 0,
+        }
+        resp = client.post("/triage", json=payload)
+        assert resp.status_code == 200
+        req_id = resp.headers.get("X-Request-ID")
+
+        events = [r.__dict__.get("event") for r in caplog.records if "event" in r.__dict__]
+        assert "triage.request_received" in events
+        assert "llm.request_started" in events
+        assert "triage.completed" in events
+
+        # Inspect completed record fields
+        completed_record = next(r for r in caplog.records if r.__dict__.get("event") == "triage.completed")
+        d = completed_record.__dict__
+        assert d["ticket_id"] == "T-1001"
+        assert d["category"] == "billing"
+        assert d["severity"] == "medium"
+        assert d["refund_authorized"] is False
+        assert d["refund_amount_inr"] == 0
+        assert d["needs_human"] is True
+        assert d["confidence"] == 0.95
+        assert d["degraded"] is False
+        assert d["processing_duration_ms"] > 0
+        assert d["circuit_state"] == "closed"
+        assert d["request_id"] == req_id
+
+    def test_sensitive_customer_data_strictly_absent_from_logs(self, client, caplog):
+        """Verify ticket body, subject, GSTIN, company, card, upi, and secrets are strictly absent from logs."""
+        import logging
+        caplog.set_level(logging.INFO)
+
+        payload = {
+            "id": "T-1010",
+            "received_at": "2026-09-06T14:30:00+05:30",
+            "subject": "GST invoice required for corporate reimbursement",
+            "body": "Need tax invoice for Sharma Tech Solutions Pvt Ltd GSTIN: 27AABCS1429B1ZB. annual plan charge 1499.",
+            "purchases": [
+                {"id": "pay_J1", "type": "renewal", "amount_inr": 1499, "status": "successful", "at": "2026-09-06T14:00:00+05:30"}
+            ],
+            "app_opens_since_renewal": 2,
+        }
+        resp = client.post("/triage", json=payload)
+        assert resp.status_code == 200
+
+        # Scan all captured log text and extra attributes
+        for record in caplog.records:
+            full_str = f"{record.getMessage()} {str(record.__dict__)}"
+            # Customer text & company & GST must not appear in any log message or dict
+            assert "Sharma Tech Solutions" not in full_str
+            assert "27AABCS1429B1ZB" not in full_str
+            assert "Need tax invoice for" not in full_str
+            assert "corporate reimbursement" not in full_str
+
+    def test_log_sanitizer_layer_filters_blocked_keys(self):
+        """Verify sanitize_log_dict purges forbidden sensitive keys from dictionary payloads."""
+        from app.core.logging import sanitize_log_dict, BLOCKED_LOG_KEYS
+
+        dirty_payload = {
+            "event": "test.event",
+            "ticket_id": "T-999",
+            "body": "Unsanitized customer text",
+            "subject": "Private problem",
+            "customer_name": "Jane Doe",
+            "email": "jane@example.com",
+            "phone": "+919876543210",
+            "gstin": "27AABCS1429B1ZB",
+            "company": "Acme Corp",
+            "card": "4111222233334444",
+            "upi": "user@okaxis",
+            "prompt": "You are a support bot",
+            "system_prompt": "Internal developer prompt",
+            "api_key": "sk-secret-token",
+            "secret": "top-secret",
+            "token": "bearer-token",
+            "nested": {
+                "safe": 123,
+                "password": "secret-password",
+            },
+        }
+
+        cleaned = sanitize_log_dict(dirty_payload)
+        assert cleaned["event"] == "test.event"
+        assert cleaned["ticket_id"] == "T-999"
+        assert cleaned["nested"] == {"safe": 123}
+
+        # None of the blocked keys may survive
+        for key in BLOCKED_LOG_KEYS:
+            assert key not in cleaned
+
+    def test_internal_failure_logs_diagnostic_context_with_x_request_id(
+        self, client, caplog, monkeypatch
+    ):
+        """Verify 500 failure logs operational diagnostic stage and returns X-Request-ID without leaking internals."""
+        import logging
+        caplog.set_level(logging.INFO)
+
+        def blow_up(*args, **kwargs):
+            raise RuntimeError("Database connection reset by peer")
+
+        monkeypatch.setattr("app.llm.pipeline.PerceptionPipeline.execute", blow_up)
+
+        payload = {
+            "id": "T-FAIL-DIAG",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Subject",
+            "body": "Body",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        resp = client.post("/triage", json=payload)
+        assert resp.status_code == 500
+        req_id = resp.headers.get("X-Request-ID")
+        assert req_id is not None
+
+        # Client response must NOT contain internal exception text
+        detail = resp.json()["detail"]
+        assert "Database connection" not in detail
+        assert "reset by peer" not in detail
+
+        # Server logs MUST contain diagnostic context for 3am debugging
+        failed_records = [r for r in caplog.records if r.__dict__.get("event") == "triage.failed"]
+        assert len(failed_records) >= 1
+        d = failed_records[0].__dict__
+        assert d["ticket_id"] == "T-FAIL-DIAG"
+        assert d["stage"] == "llm"
+        assert d["error_type"] == "RuntimeError"
+        assert d["request_id"] == req_id
+        assert d["processing_duration_ms"] >= 0
+
+    def test_health_endpoint_reports_circuit_state_independently(self, client):
+        """Verify GET /health exposes circuit_state without contacting LLM."""
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "circuit_state" in data
+        assert data["circuit_state"] in {"closed", "open", "half_open"}
+
+
+
 
