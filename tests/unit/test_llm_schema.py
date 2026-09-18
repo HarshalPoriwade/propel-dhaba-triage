@@ -1,12 +1,14 @@
-"""Unit tests for the intermediate LLM perception schema.
+"""Unit tests for the intermediate LLM perception schema and semantic validation.
 
-Verifies strict financial boundaries and validation invariants.
+Verifies strict financial boundaries, validation invariants, and semantic safety.
 """
 
 import pytest
 from pydantic import ValidationError
 
 from app.domain.enums import Category, Severity
+from app.llm.base import LLMSemanticValidationError
+from app.llm.validation import validate_llm_perception
 from app.schemas.llm import LLMPerceptionOutput
 
 
@@ -104,3 +106,99 @@ def test_financial_safety_boundary_llm_cannot_authorize_or_specify_refunds():
     assert "amount_inr" not in allowed_fields
     assert "execute_refund" not in allowed_fields
     assert "payment_action" not in allowed_fields
+
+
+# =========================================================================
+# Step 6 Tests: Semantic Validation Layer
+# =========================================================================
+
+
+def test_semantic_validation_accepts_valid_perception():
+    """Verify semantic validator accepts a well-formed perception object."""
+    perception = LLMPerceptionOutput(
+        category=Category.BILLING,
+        severity=Severity.MEDIUM,
+        user_requested_refund=True,
+        claimed_issue="User charged 249 renewal without explicit consent",
+        detected_language="en",
+        suggested_escalation=False,
+        confidence=0.94,
+        draft_reply="We understand your frustration and are reviewing your renewal.",
+    )
+    validated = validate_llm_perception(perception)
+    assert validated is perception
+
+
+def test_semantic_validation_rejects_empty_or_too_short_draft_reply():
+    """Verify semantic validator rejects empty or whitespace-only draft replies."""
+    perception = LLMPerceptionOutput(
+        category=Category.GENERAL,
+        severity=Severity.LOW,
+        user_requested_refund=False,
+        claimed_issue="Question",
+        detected_language="en",
+        suggested_escalation=False,
+        confidence=0.8,
+        draft_reply="   hi  ",  # Too short after strip
+    )
+    with pytest.raises(LLMSemanticValidationError) as exc_info:
+        validate_llm_perception(perception)
+    assert "Draft reply is empty or unreasonably short" in str(exc_info.value)
+
+
+def test_semantic_validation_rejects_hallucinated_execution_claims_in_draft():
+    """Verify semantic validator rejects draft replies asserting unauthorized execution."""
+    claims = [
+        "We have processed your refund of 249 rupees.",
+        "Your refund has been approved and issued.",
+        "Your money has been refunded to your bank account.",
+        "You are granted VIP status and a full refund.",
+    ]
+    for claim in claims:
+        perception = LLMPerceptionOutput(
+            category=Category.BILLING,
+            severity=Severity.HIGH,
+            user_requested_refund=True,
+            claimed_issue="User wants refund",
+            detected_language="en",
+            suggested_escalation=False,
+            confidence=0.9,
+            draft_reply=claim,
+        )
+        with pytest.raises(LLMSemanticValidationError) as exc_info:
+            validate_llm_perception(perception)
+        assert "unauthorized financial execution" in str(exc_info.value)
+
+
+def test_semantic_validation_rejects_empty_claimed_issue():
+    """Verify semantic validator rejects whitespace-only claimed issue summaries."""
+    perception = LLMPerceptionOutput(
+        category=Category.GENERAL,
+        severity=Severity.LOW,
+        user_requested_refund=False,
+        claimed_issue="     ",
+        detected_language="en",
+        suggested_escalation=False,
+        confidence=0.8,
+        draft_reply="We are reviewing your request.",
+    )
+    with pytest.raises(LLMSemanticValidationError) as exc_info:
+        validate_llm_perception(perception)
+    assert "Claimed issue summary is empty" in str(exc_info.value)
+
+
+def test_semantic_validation_rejects_empty_detected_language():
+    """Verify semantic validator rejects empty detected language string."""
+    perception = LLMPerceptionOutput(
+        category=Category.GENERAL,
+        severity=Severity.LOW,
+        user_requested_refund=False,
+        claimed_issue="Some issue",
+        detected_language="    ",
+        suggested_escalation=False,
+        confidence=0.8,
+        draft_reply="We are reviewing your request.",
+    )
+    with pytest.raises(LLMSemanticValidationError) as exc_info:
+        validate_llm_perception(perception)
+    assert "Detected language is empty" in str(exc_info.value)

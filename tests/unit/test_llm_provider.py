@@ -1,8 +1,9 @@
-"""Unit tests for the LLM provider abstraction, fixture mode, provider factory, prompt builder, and parser."""
+"""Unit tests for the LLM provider abstraction, fixture mode, provider factory, prompt builder, parser, retry, and fallback."""
 
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import Settings
@@ -13,11 +14,17 @@ from app.llm import (
     FixtureLLMProvider,
     LiveLLMProvider,
     LLMConfigurationError,
+    LLMParseError,
     LLMResponseError,
+    LLMTimeoutError,
+    PerceptionPipeline,
     SYSTEM_PROMPT,
     build_chat_messages,
+    build_retry_messages,
     build_ticket_user_prompt,
+    create_fallback_perception,
     get_llm_provider,
+    get_perception_pipeline,
     parse_llm_perception,
 )
 from app.schemas.llm import LLMPerceptionOutput
@@ -277,15 +284,16 @@ def test_parse_llm_perception_handles_markdown_code_fences():
 
 
 def test_parse_llm_perception_rejects_malformed_json():
-    """Verify parse_llm_perception raises LLMResponseError on malformed JSON."""
+    """Verify parse_llm_perception raises LLMParseError on malformed JSON."""
     bad_json = '{"category": "billing", "severity": '  # Truncated
-    with pytest.raises(LLMResponseError) as exc_info:
+    with pytest.raises(LLMParseError) as exc_info:
         parse_llm_perception(bad_json)
     assert "Malformed JSON" in str(exc_info.value)
+    assert exc_info.value.error_code == "MALFORMED_JSON"
 
 
 def test_parse_llm_perception_rejects_schema_mismatches_and_missing_fields():
-    """Verify parse_llm_perception raises LLMResponseError when required fields are missing."""
+    """Verify parse_llm_perception raises LLMSchemaValidationError when required fields are missing."""
     missing_fields = json.dumps({
         "category": "billing",
         "severity": "medium",
@@ -321,3 +329,165 @@ def test_parse_llm_perception_rejects_non_dict_payload():
     with pytest.raises(LLMResponseError) as exc_info:
         parse_llm_perception(json_array)
     assert "Expected JSON object" in str(exc_info.value)
+
+
+# =========================================================================
+# Step 6 Tests: Bounded Retry, Fallback Degradation, and Failure Isolation
+# =========================================================================
+
+
+@pytest.mark.asyncio
+async def test_retry_pipeline_succeeds_on_second_attempt():
+    """Verify that a recoverable error on attempt 1 triggers bounded retry and succeeds on attempt 2."""
+    now = datetime.now(timezone.utc)
+    ticket = Ticket(
+        id="T-RETRY-1",
+        received_at=now,
+        subject="Retry subject",
+        body="Retry body",
+        purchases=(),
+        app_opens_since_renewal=0,
+    )
+
+    valid_output = LLMPerceptionOutput(
+        category=Category.BILLING,
+        severity=Severity.MEDIUM,
+        user_requested_refund=True,
+        claimed_issue="Recovered issue on attempt 2",
+        detected_language="en",
+        suggested_escalation=False,
+        confidence=0.92,
+        draft_reply="We have resolved your issue.",
+    )
+
+    mock_provider = AsyncMock(spec=BaseLLMProvider)
+    # Attempt 1 fails with LLMParseError; Attempt 2 succeeds
+    mock_provider.generate_perception.side_effect = LLMParseError("Malformed JSON")
+    mock_provider.generate_perception_retry = AsyncMock(return_value=valid_output)
+
+    pipeline = PerceptionPipeline(provider=mock_provider, max_retries=1)
+    result = await pipeline.execute(ticket)
+
+    assert result.degraded is False
+    assert result.attempts == 2
+    assert result.error_code is None
+    assert result.perception.claimed_issue == "Recovered issue on attempt 2"
+    assert mock_provider.generate_perception.await_count == 1
+    assert mock_provider.generate_perception_retry.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_pipeline_exhaustion_produces_deterministic_fallback():
+    """Verify that repeated recoverable errors degrade safely to fallback after retry exhaustion."""
+    now = datetime.now(timezone.utc)
+    ticket = Ticket(
+        id="T-EXHAUST-1",
+        received_at=now,
+        subject="Broken ticket",
+        body="Broken body",
+        purchases=(),
+        app_opens_since_renewal=0,
+    )
+
+    mock_provider = AsyncMock(spec=BaseLLMProvider)
+    # Both attempt 1 and attempt 2 fail
+    mock_provider.generate_perception.side_effect = LLMParseError("Malformed JSON")
+    mock_provider.generate_perception_retry = AsyncMock(side_effect=LLMParseError("Still malformed"))
+
+    pipeline = PerceptionPipeline(provider=mock_provider, max_retries=1)
+    result = await pipeline.execute(ticket)
+
+    # Verified fallback properties
+    assert result.degraded is True
+    assert result.attempts == 2  # Exactly 1 initial + 1 retry = 2 attempts
+    assert result.error_code == "MALFORMED_JSON"
+    assert result.perception.confidence == 0.0
+    assert result.perception.suggested_escalation is True
+    assert result.perception.user_requested_refund is False
+    assert result.perception.category == Category.GENERAL
+    assert "reviewing it" in result.perception.draft_reply
+
+
+@pytest.mark.asyncio
+async def test_configuration_error_does_not_loop_and_falls_back_immediately():
+    """Verify that unrecoverable LLMConfigurationError does not retry and degrades immediately."""
+    now = datetime.now(timezone.utc)
+    ticket = Ticket(
+        id="T-CONFIG-FAIL",
+        received_at=now,
+        subject="Config test",
+        body="Config body",
+        purchases=(),
+        app_opens_since_renewal=0,
+    )
+
+    mock_provider = AsyncMock(spec=BaseLLMProvider)
+    mock_provider.generate_perception.side_effect = LLMConfigurationError("Missing API key")
+
+    pipeline = PerceptionPipeline(provider=mock_provider, max_retries=3)
+    result = await pipeline.execute(ticket)
+
+    assert result.degraded is True
+    assert result.attempts == 1  # Did NOT retry 3 times!
+    assert result.error_code == "CONFIGURATION_ERROR"
+    assert result.perception.confidence == 0.0
+
+
+@pytest.mark.asyncio
+async def test_timeout_error_is_retried_and_falls_back():
+    """Verify upstream provider timeout is handled as a recoverable error and retried."""
+    now = datetime.now(timezone.utc)
+    ticket = Ticket(
+        id="T-TIMEOUT-1",
+        received_at=now,
+        subject="Timeout ticket",
+        body="Slow server",
+        purchases=(),
+        app_opens_since_renewal=0,
+    )
+
+    mock_provider = AsyncMock(spec=BaseLLMProvider)
+    mock_provider.generate_perception.side_effect = LLMTimeoutError("Timed out after 2.5s")
+    mock_provider.generate_perception_retry = AsyncMock(side_effect=LLMTimeoutError("Timed out again"))
+
+    pipeline = PerceptionPipeline(provider=mock_provider, max_retries=1)
+    result = await pipeline.execute(ticket)
+
+    assert result.degraded is True
+    assert result.attempts == 2
+    assert result.error_code == "TIMEOUT_ERROR"
+    assert result.perception.confidence == 0.0
+    assert result.perception.suggested_escalation is True
+
+
+def test_fallback_perception_properties():
+    """Verify that create_fallback_perception maintains strict financial safety invariants."""
+    now = datetime.now(timezone.utc)
+    ticket = Ticket(
+        id="T-1001",
+        received_at=now,
+        subject="charged 249",
+        body="refund please",
+        purchases=(),
+        app_opens_since_renewal=0,
+    )
+    fallback = create_fallback_perception(ticket)
+
+    assert fallback.category == Category.GENERAL
+    assert fallback.severity == Severity.MEDIUM
+    assert fallback.confidence == 0.0
+    assert fallback.suggested_escalation is True
+    assert fallback.user_requested_refund is False
+    assert "refund" not in fallback.draft_reply.lower()
+    assert "processed" not in fallback.draft_reply.lower()
+    assert "cancel" not in fallback.draft_reply.lower()
+
+
+def test_get_perception_pipeline_factory():
+    """Verify get_perception_pipeline constructs PerceptionPipeline wrapping configured provider."""
+    settings = Settings(MODEL_MODE="fixture", MODEL_API_KEY=None, LLM_MAX_RETRIES=2)
+    pipeline = get_perception_pipeline(settings)
+
+    assert isinstance(pipeline, PerceptionPipeline)
+    assert isinstance(pipeline.provider, FixtureLLMProvider)
+    assert pipeline.max_retries == 2

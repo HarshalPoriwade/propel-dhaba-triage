@@ -53,6 +53,12 @@ class Settings(BaseSettings):
         gt=0,
         description="Maximum concurrent outbound calls to LLM provider",
     )
+    LLM_MAX_RETRIES: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Maximum retry attempts for recoverable LLM failures",
+    )
 
     # Storage & Persistence
     DATABASE_PATH: str = Field(
