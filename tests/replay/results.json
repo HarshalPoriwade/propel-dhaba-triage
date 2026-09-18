@@ -1,0 +1,150 @@
+{
+  "total_tickets": 12,
+  "mode": "fixture",
+  "results": [
+    {
+      "ticket_id": "T-1001",
+      "category": "billing",
+      "severity": "medium",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[POLICY_UNDEFINED_MANUAL_REVIEW] Customer requested refund for verified charge pay_A2 (INR 249), but Dhaba refund policy entitlement is not authoritatively defined in system specifications. Automatic financial action withheld; escalated to human review.",
+      "needs_human": true,
+      "confidence": 0.95,
+      "degraded": false,
+      "reply_preview": "We understand you were surprised by the \u20b9249 monthly renewal following your \u20b91 trial. Our billing team is reviewing your..."
+    },
+    {
+      "ticket_id": "T-1002",
+      "category": "technical",
+      "severity": "high",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": true,
+      "confidence": 0.98,
+      "degraded": false,
+      "reply_preview": "We apologize for the crash on your Redmi Note 12 after yesterday's update. Our engineering team is currently investigati..."
+    },
+    {
+      "ticket_id": "T-1003",
+      "category": "account",
+      "severity": "medium",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": false,
+      "confidence": 0.91,
+      "degraded": false,
+      "reply_preview": "We can help you restore your order history. Please verify you are logged into the same Google account on your new device..."
+    },
+    {
+      "ticket_id": "T-1004",
+      "category": "cancellation",
+      "severity": "low",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": false,
+      "confidence": 0.85,
+      "degraded": false,
+      "reply_preview": "We have received your cancellation request. If you wish to cancel your subscription, we will ensure future auto-renewals..."
+    },
+    {
+      "ticket_id": "T-1005",
+      "category": "billing",
+      "severity": "high",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": true,
+      "confidence": 0.93,
+      "degraded": false,
+      "reply_preview": "Hum samajhte hain ki aapke bank se 249 kat gaye hain par app me plan activate nahi hua. Hum payment gateway se transacti..."
+    },
+    {
+      "ticket_id": "T-1006",
+      "category": "billing",
+      "severity": "high",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[POLICY_UNDEFINED_MANUAL_REVIEW] Customer requested refund for verified charge pay_F2 (INR 1499), but Dhaba refund policy entitlement is not authoritatively defined in system specifications. Automatic financial action withheld; escalated to human review.",
+      "needs_human": true,
+      "confidence": 0.96,
+      "degraded": false,
+      "reply_preview": "We understand you disabled autopay in your UPI app and were charged \u20b91,499 for annual renewal. We are reviewing your tra..."
+    },
+    {
+      "ticket_id": "T-1007",
+      "category": "feature_request",
+      "severity": "low",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": false,
+      "confidence": 0.98,
+      "degraded": false,
+      "reply_preview": "Thank you for using Dhaba and sharing your feedback! We have logged your request for Marathi language support with our p..."
+    },
+    {
+      "ticket_id": "T-1008",
+      "category": "complaint",
+      "severity": "critical",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[HIGH_RISK_MANUAL_REVIEW] High-risk indicator detected (fraud claim, legal threat, or cyber cell report). Automatic financial actions are strictly prohibited. Escalated to compliance.",
+      "needs_human": true,
+      "confidence": 0.96,
+      "degraded": false,
+      "reply_preview": "We take unauthorized transaction reports very seriously. Our senior compliance and customer support team is prioritizing..."
+    },
+    {
+      "ticket_id": "T-1009",
+      "category": "billing",
+      "severity": "medium",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[CONFLICTING_PAYMENT_EVIDENCE] Conflicting payment evidence: Customer claims duplicate charge, but billing records show only 1 successful capture (pay_I2 for INR 249) and failed attempt(s) (pay_I1). No duplicate payment was captured. Manual reconciliation required.",
+      "needs_human": true,
+      "confidence": 0.94,
+      "degraded": false,
+      "reply_preview": "We understand you are inquiring about being charged \u20b9249 twice today. We are reviewing your billing ledger to confirm th..."
+    },
+    {
+      "ticket_id": "T-1010",
+      "category": "billing",
+      "severity": "low",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": false,
+      "confidence": 0.97,
+      "degraded": false,
+      "reply_preview": "Thank you for reaching out. We have noted your request and GST details for generating your tax invoice for business reim..."
+    },
+    {
+      "ticket_id": "T-1011",
+      "category": "general",
+      "severity": "low",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[NO_REFUND_REQUEST] No refund requested by customer.",
+      "needs_human": false,
+      "confidence": 0.91,
+      "degraded": false,
+      "reply_preview": "Thank you for your interest in Dhaba Premium. While some browsing features work offline, an active connection is require..."
+    },
+    {
+      "ticket_id": "T-1012",
+      "category": "complaint",
+      "severity": "high",
+      "refund_authorized": false,
+      "refund_amount_inr": 0,
+      "refund_reason": "[POLICY_UNDEFINED_MANUAL_REVIEW] Customer requested refund for verified charge pay_K2 (INR 249), but Dhaba refund policy entitlement is not authoritatively defined in system specifications. Automatic financial action withheld; escalated to human review.",
+      "needs_human": true,
+      "confidence": 0.94,
+      "degraded": false,
+      "reply_preview": "We are very sorry that your experience did not meet expectations. We are reviewing your recent subscription charge and r..."
+    }
+  ]
+}

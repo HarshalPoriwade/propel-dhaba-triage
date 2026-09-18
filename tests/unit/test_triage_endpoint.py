@@ -199,3 +199,94 @@ class TestTriageEndpoint:
         assert "HIGH_RISK_MANUAL_REVIEW" in data["refund"]["reason"]
         assert data["needs_human"] is True
 
+    def test_post_triage_retry_succeeds_after_released_claim(self, client, temp_db, monkeypatch):
+        """Verify that after a failure releases the claim, a subsequent attempt successfully completes."""
+        payload = {
+            "id": "T-RETRY-SUCCESS",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Intermittent failure",
+            "body": "First attempt fails, second succeeds",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+
+        # Attempt 1: Simulate crash
+        def failing_exec(*args, **kwargs):
+            raise RuntimeError("Temporary glitch")
+
+        monkeypatch.setattr("app.llm.pipeline.PerceptionPipeline.execute", failing_exec)
+        resp1 = client.post("/triage", json=payload)
+        assert resp1.status_code == 500
+
+        # Undo mock so Attempt 2 runs real pipeline in fixture mode
+        monkeypatch.undo()
+
+        resp2 = client.post("/triage", json=payload)
+        assert resp2.status_code == 200
+        assert resp2.json()["ticket_id"] == "T-RETRY-SUCCESS"
+
+        repo = TriageRepository(db_path=temp_db)
+        record = repo.get_record("T-RETRY-SUCCESS")
+        assert record is not None
+        assert record.status == ProcessingStatus.COMPLETED
+
+    def test_release_claim_never_deletes_completed_record(self, temp_db):
+        """Verify release_claim only targets in_progress and never deletes completed rows."""
+        repo = TriageRepository(db_path=temp_db)
+        repo.init_db()
+        claim = repo.claim_ticket("T-SAFE")
+        assert claim.status.value == "claimed"
+
+        # Mark completed
+        from datetime import datetime, timezone
+        from app.domain.enums import Category, Severity
+        from app.schemas.response import RefundResponse, TicketTriageResponse
+
+        completed_resp = TicketTriageResponse(
+            ticket_id="T-SAFE",
+            category=Category.GENERAL,
+            severity=Severity.LOW,
+            refund=RefundResponse(should_refund=False, amount_inr=0, reason="None"),
+            reply_draft="Hello",
+            needs_human=False,
+            confidence=0.9,
+            degraded=False,
+            triaged_at=datetime.now(timezone.utc),
+        )
+        repo.save_completed_result("T-SAFE", completed_resp)
+
+        # Attempt to release claim on completed ticket
+        repo.release_claim("T-SAFE")
+
+        # Record must still exist in completed status!
+        record = repo.get_record("T-SAFE")
+        assert record is not None
+        assert record.status == ProcessingStatus.COMPLETED
+
+    def test_api_error_does_not_leak_internals(self, client, monkeypatch):
+        """Verify HTTP 500 error body does not contain tracebacks, file paths, or SQL."""
+        def catastrophic_error(*args, **kwargs):
+            raise Exception("sqlite3.OperationalError: table triage_records locked at /var/db/dhaba.db")
+
+        monkeypatch.setattr("app.llm.pipeline.PerceptionPipeline.execute", catastrophic_error)
+
+        payload = {
+            "id": "T-LEAK-TEST",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Subject",
+            "body": "Body",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        response = client.post("/triage", json=payload)
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+
+        # Sensitive internals MUST NOT be leaked to the client
+        assert "sqlite3" not in detail
+        assert "OperationalError" not in detail
+        assert "dhaba.db" not in detail
+        assert "Traceback" not in detail
+        assert detail == "An unexpected internal error occurred while processing the ticket."
+
+

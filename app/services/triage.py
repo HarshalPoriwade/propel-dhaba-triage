@@ -144,5 +144,10 @@ class TriageService:
 
         except Exception:
             # If processing or persistence failed after claiming, release in_progress claim
-            self.repository.release_claim(ticket.id)
+            try:
+                self.repository.release_claim(ticket.id)
+            except Exception:
+                # Do not allow cleanup failure to mask the original processing exception
+                pass
             raise
+

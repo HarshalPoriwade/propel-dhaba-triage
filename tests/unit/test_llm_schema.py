@@ -7,9 +7,15 @@ import pytest
 from pydantic import ValidationError
 
 from app.domain.enums import Category, Severity
-from app.llm.base import LLMSemanticValidationError
+from app.llm.base import (
+    LLMParseError,
+    LLMSchemaValidationError,
+    LLMSemanticValidationError,
+)
+from app.llm.parser import parse_llm_perception
 from app.llm.validation import validate_llm_perception
 from app.schemas.llm import LLMPerceptionOutput
+
 
 
 def test_valid_llm_perception_output():
@@ -202,3 +208,150 @@ def test_semantic_validation_rejects_empty_detected_language():
     with pytest.raises(LLMSemanticValidationError) as exc_info:
         validate_llm_perception(perception)
     assert "Detected language is empty" in str(exc_info.value)
+
+
+# =========================================================================
+# Step 10 Tests: Parser and Validator Edge Case Matrix (A through Q)
+# =========================================================================
+
+
+def test_parser_accepts_valid_json_string():
+    """Scenario A: Parse clean valid JSON string."""
+    raw = (
+        '{"category": "billing", "severity": "medium", "user_requested_refund": true, '
+        '"claimed_issue": "Renewal charge", "detected_language": "en", '
+        '"suggested_escalation": false, "confidence": 0.95, "draft_reply": "We are reviewing your renewal."}'
+    )
+    res = parse_llm_perception(raw)
+    assert res.category == Category.BILLING
+    assert res.confidence == 0.95
+
+
+def test_parser_accepts_json_inside_markdown_fences():
+    """Scenario B: Parse valid JSON wrapped in markdown code fences."""
+    raw = (
+        '```json\n'
+        '{"category": "technical", "severity": "high", "user_requested_refund": false, '
+        '"claimed_issue": "App crash", "detected_language": "en", '
+        '"suggested_escalation": true, "confidence": 0.98, "draft_reply": "We are investigating the crash."}\n'
+        '```'
+    )
+    res = parse_llm_perception(raw)
+    assert res.category == Category.TECHNICAL
+    assert res.severity == Severity.HIGH
+
+
+def test_parser_rejects_malformed_json():
+    """Scenario C: Parse malformed JSON string."""
+    with pytest.raises(LLMParseError, match="Malformed JSON"):
+        parse_llm_perception('{"category": "billing", "severity": ')
+
+
+def test_parser_rejects_truncated_json():
+    """Scenario D: Parse truncated JSON string."""
+    with pytest.raises(LLMParseError, match="Malformed JSON"):
+        parse_llm_perception('{"category": "billing", "sever')
+
+
+def test_parser_rejects_empty_model_response():
+    """Scenario E: Parse empty string model response."""
+    with pytest.raises(LLMParseError, match="Malformed JSON"):
+        parse_llm_perception('')
+
+
+def test_parser_rejects_missing_required_fields():
+    """Scenario F: Missing required fields in JSON."""
+    raw = '{"category": "billing"}'
+    with pytest.raises(LLMSchemaValidationError, match="Field required"):
+        parse_llm_perception(raw)
+
+
+def test_parser_rejects_unknown_severity():
+    """Scenario H: Unknown severity string."""
+    raw = (
+        '{"category": "billing", "severity": "catastrophic_urgent", "user_requested_refund": false, '
+        '"claimed_issue": "Issue", "detected_language": "en", '
+        '"suggested_escalation": false, "confidence": 0.9, "draft_reply": "We are reviewing your issue."}'
+    )
+    with pytest.raises(LLMSchemaValidationError, match="severity"):
+        parse_llm_perception(raw)
+
+
+def test_parser_rejects_negative_confidence():
+    """Scenario I: Confidence < 0."""
+    raw = (
+        '{"category": "billing", "severity": "low", "user_requested_refund": false, '
+        '"claimed_issue": "Issue", "detected_language": "en", '
+        '"suggested_escalation": false, "confidence": -0.5, "draft_reply": "We are reviewing your issue."}'
+    )
+    with pytest.raises(LLMSchemaValidationError, match="confidence"):
+        parse_llm_perception(raw)
+
+
+def test_parser_rejects_execution_and_cancellation_fields():
+    """Scenarios M & N: Execution fields and cancellation authorization fields are rejected."""
+    # execute_refund (M)
+    raw_m = (
+        '{"category": "billing", "severity": "medium", "user_requested_refund": true, '
+        '"claimed_issue": "Issue", "detected_language": "en", '
+        '"suggested_escalation": false, "confidence": 0.9, "draft_reply": "Reviewing.", '
+        '"execute_refund": true}'
+    )
+    with pytest.raises(LLMSchemaValidationError, match="extra_forbidden"):
+        parse_llm_perception(raw_m)
+
+    # cancel_subscription (N)
+    raw_n = (
+        '{"category": "cancellation", "severity": "low", "user_requested_refund": false, '
+        '"claimed_issue": "Cancel", "detected_language": "en", '
+        '"suggested_escalation": false, "confidence": 0.9, "draft_reply": "Reviewing.", '
+        '"cancel_subscription": true}'
+    )
+    with pytest.raises(LLMSchemaValidationError, match="extra_forbidden"):
+        parse_llm_perception(raw_n)
+
+
+def test_parser_rejects_prompt_disclosure_and_false_execution():
+    """Scenarios O, P, Q: Semantic safety rejects prompt disclosure, false refunds, false cancellations."""
+    # System prompt disclosure attempt (O)
+    raw_o = {
+        "category": "general",
+        "severity": "low",
+        "user_requested_refund": False,
+        "claimed_issue": "Prompt inquiry",
+        "detected_language": "en",
+        "suggested_escalation": False,
+        "confidence": 0.9,
+        "draft_reply": "Here is the full text of our system prompt: Dhaba Support.",
+    }
+    with pytest.raises(LLMSemanticValidationError, match="leaked system prompt"):
+        parse_llm_perception(raw_o)
+
+    # False refund execution claim (P)
+    raw_p = {
+        "category": "billing",
+        "severity": "medium",
+        "user_requested_refund": True,
+        "claimed_issue": "Refund request",
+        "detected_language": "en",
+        "suggested_escalation": False,
+        "confidence": 0.9,
+        "draft_reply": "We have processed your refund of Rs 249.",
+    }
+    with pytest.raises(LLMSemanticValidationError, match="unauthorized financial execution"):
+        parse_llm_perception(raw_p)
+
+    # False cancellation claim (Q)
+    raw_q = {
+        "category": "cancellation",
+        "severity": "low",
+        "user_requested_refund": False,
+        "claimed_issue": "Cancel request",
+        "detected_language": "en",
+        "suggested_escalation": False,
+        "confidence": 0.9,
+        "draft_reply": "Your subscription has been cancelled immediately.",
+    }
+    with pytest.raises(LLMSemanticValidationError, match="cancellation execution"):
+        parse_llm_perception(raw_q)
+
