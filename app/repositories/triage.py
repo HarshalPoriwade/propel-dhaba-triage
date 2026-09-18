@@ -259,3 +259,18 @@ class TriageRepository:
             cursor = conn.execute("SELECT COUNT(*) FROM triage_records")
             row = cursor.fetchone()
             return int(row[0]) if row else 0
+
+    def release_claim(self, ticket_id: str) -> None:
+        """Release an in-progress ticket claim if processing fails.
+
+        Removes the in_progress row so the ticket is not permanently locked in an incomplete state.
+        """
+        with self._connection() as conn:
+            conn.execute(
+                """
+                DELETE FROM triage_records
+                WHERE ticket_id = ? AND status = ?
+                """,
+                (ticket_id, ProcessingStatus.IN_PROGRESS.value),
+            )
+

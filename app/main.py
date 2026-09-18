@@ -1,11 +1,15 @@
 """FastAPI application initialization and factory."""
 
+from contextlib import asynccontextmanager
+from typing import Optional
 from fastapi import FastAPI
 
+from app.api.triage import router as triage_router
 from app.core.config import Settings, get_settings
+from app.repositories.triage import TriageRepository
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Optional[Settings] = None) -> FastAPI:
     """Application factory creating and configuring the FastAPI instance.
 
     Args:
@@ -17,16 +21,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = get_settings()
 
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        # Initialize SQLite database and schema on startup
+        repo = TriageRepository(db_path=settings.DATABASE_PATH)
+        repo.init_db()
+        yield
+
     application = FastAPI(
         title=settings.APP_NAME,
         version="0.1.0",
         description="Automated support-ticket triage microservice for Dhaba",
         docs_url="/docs" if settings.APP_ENV != "production" else None,
         redoc_url="/redoc" if settings.APP_ENV != "production" else None,
+        lifespan=lifespan,
     )
+    application.state.settings = settings
 
-    # Note: Endpoints will be mounted in their respective implementation steps.
-    # No routes or placeholder endpoints are defined in Step 1.
+    # Simple health check endpoint
+    @application.get("/health", tags=["health"])
+    async def health_check():
+        return {"status": "ok", "app": settings.APP_NAME}
+
+    # Mount triage route
+    application.include_router(triage_router)
 
     return application
 
