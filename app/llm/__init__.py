@@ -1,4 +1,4 @@
-"""LLM package exposing the provider interface, implementations, and factory."""
+"""LLM package exposing the provider interface, implementations, factory, parser, and prompts."""
 
 from typing import Optional
 
@@ -10,6 +10,12 @@ from app.llm.base import (
     LLMResponseError,
 )
 from app.llm.fixture import FixtureLLMProvider
+from app.llm.parser import parse_llm_perception
+from app.llm.prompts import (
+    SYSTEM_PROMPT,
+    build_chat_messages,
+    build_ticket_user_prompt,
+)
 from app.llm.provider import LiveLLMProvider
 
 
@@ -49,5 +55,9 @@ __all__ = [
     "LLMConfigurationError",
     "LLMProviderError",
     "LLMResponseError",
+    "SYSTEM_PROMPT",
+    "build_chat_messages",
+    "build_ticket_user_prompt",
     "get_llm_provider",
+    "parse_llm_perception",
 ]

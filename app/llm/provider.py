@@ -1,11 +1,12 @@
-"""Live LLM provider communicating with an external model API."""
+"""Live LLM provider communicating with an external OpenAI-compatible chat API."""
 
-import json
 from typing import Optional
 import httpx
 
 from app.domain.models import Ticket
 from app.llm.base import BaseLLMProvider, LLMConfigurationError, LLMResponseError
+from app.llm.parser import parse_llm_perception
+from app.llm.prompts import build_chat_messages
 from app.schemas.llm import LLMPerceptionOutput
 
 
@@ -45,7 +46,7 @@ class LiveLLMProvider(BaseLLMProvider):
             ticket: Domain ticket containing customer input.
 
         Returns:
-            Validated LLMPerceptionOutput.
+            Validated LLMPerceptionOutput parsed from provider completion.
 
         Raises:
             LLMResponseError: If the upstream call fails, times out, or returns invalid data.
@@ -56,24 +57,9 @@ class LiveLLMProvider(BaseLLMProvider):
             "Content-Type": "application/json",
         }
 
-        # Minimal prompt payload for this step; prompt optimization and retry belong to later steps
-        prompt_content = (
-            f"Analyze this customer ticket and output JSON with category, severity, "
-            f"user_requested_refund (bool), claimed_issue, detected_language, "
-            f"suggested_escalation (bool), confidence (0.0-1.0), and draft_reply.\n\n"
-            f"Subject: {ticket.subject}\n"
-            f"Body: {ticket.body}"
-        )
-
         payload = {
             "model": self.model_name,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a customer support ticket analyzer. Output valid JSON only.",
-                },
-                {"role": "user", "content": prompt_content},
-            ],
+            "messages": build_chat_messages(ticket),
             "response_format": {"type": "json_object"},
             "temperature": 0.0,
         }
@@ -85,13 +71,14 @@ class LiveLLMProvider(BaseLLMProvider):
                 data = response.json()
 
             raw_content = data["choices"][0]["message"]["content"]
-            parsed_json = json.loads(raw_content)
-            return LLMPerceptionOutput.model_validate(parsed_json)
+            return parse_llm_perception(raw_content)
         except httpx.HTTPStatusError as err:
             raise LLMResponseError(
                 f"Upstream provider returned HTTP {err.response.status_code}: {err.response.text}"
             ) from err
         except httpx.RequestError as err:
             raise LLMResponseError(f"Network error calling upstream provider: {err}") from err
+        except LLMResponseError:
+            raise
         except Exception as err:
-            raise LLMResponseError(f"Failed to parse provider response into LLMPerceptionOutput: {err}") from err
+            raise LLMResponseError(f"Unexpected provider failure: {err}") from err
