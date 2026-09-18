@@ -14,6 +14,20 @@ _UNAUTHORIZED_PROMISE_PATTERNS = [
     re.compile(r"\bvip\s+(status|override|refund)\b", re.IGNORECASE),
 ]
 
+# Phrases where an LLM falsely claims external cancellation execution
+_UNAUTHORIZED_CANCELLATION_PATTERNS = [
+    re.compile(r"\b(subscription|plan|account)\s+(has been\s+)?(cancelled|canceled|terminated)\b", re.IGNORECASE),
+    re.compile(r"\b(i have|we have|we've)\s+(cancelled|canceled)\s+(your\s+)?(subscription|plan)\b", re.IGNORECASE),
+]
+
+# Patterns indicating system prompt or internal developer instruction disclosure
+_SYSTEM_DISCLOSURE_PATTERNS = [
+    re.compile(r"\b(here is|full text of|this is)\s+(my|the|our)\s+system\s+prompt\b", re.IGNORECASE),
+    re.compile(r"\b(system\s+prompt|developer\s+instruction|untrusted_ticket_data|perception\s+engine)\b", re.IGNORECASE),
+    re.compile(r"\byou\s+are\s+the\s+dhaba\s+support\s+ticket\s+perception\s+engine\b", re.IGNORECASE),
+    re.compile(r"\b(internal\s+refund\s+rules|internal\s+policies)\b", re.IGNORECASE),
+]
+
 
 def validate_llm_perception(perception: LLMPerceptionOutput) -> LLMPerceptionOutput:
     """Validate semantic reasonability and safety of an LLMPerceptionOutput.
@@ -39,6 +53,20 @@ def validate_llm_perception(perception: LLMPerceptionOutput) -> LLMPerceptionOut
         if pattern.search(reply):
             raise LLMSemanticValidationError(
                 "Draft reply contains unauthorized financial execution or VIP promises"
+            )
+
+    # Check for false cancellation execution claims
+    for pattern in _UNAUTHORIZED_CANCELLATION_PATTERNS:
+        if pattern.search(reply):
+            raise LLMSemanticValidationError(
+                "Draft reply contains unauthorized subscription cancellation execution claims"
+            )
+
+    # Check for prompt leakage or internal instruction disclosure
+    for pattern in _SYSTEM_DISCLOSURE_PATTERNS:
+        if pattern.search(reply):
+            raise LLMSemanticValidationError(
+                "Draft reply contains leaked system prompt or internal developer instructions"
             )
 
     # 2. Validate claimed issue text

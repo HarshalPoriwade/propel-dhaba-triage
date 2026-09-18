@@ -43,14 +43,47 @@ def generate_final_reply(
         "returned to your bank",
     )
 
-    # 1. If policy did NOT authorize a refund, ensure no false execution claim was hallucinated
-    if not refund_result.should_refund:
-        has_unauthorized_claim = any(
-            marker in raw_draft.lower() for marker in unauthorized_refund_markers
+    # Unauthorized cancellation execution markers (no cancellation executor exists in MVP)
+    unauthorized_cancellation_markers = (
+        "subscription has been cancelled",
+        "subscription is cancelled",
+        "subscription has been canceled",
+        "plan has been cancelled",
+        "plan has been canceled",
+        "we have cancelled your subscription",
+        "we have canceled your subscription",
+    )
+
+    # System prompt or internal instruction leakage markers
+    system_leakage_markers = (
+        "system prompt",
+        "untrusted ticket data",
+        "untrusted_ticket_data",
+        "developer instruction",
+        "perception engine",
+        "internal refund rules",
+    )
+
+    lower_draft = raw_draft.lower()
+    lang = (perception.detected_language or "en").lower()
+    is_indic = "hindi" in lang or "hinglish" in lang
+
+    # 1. Neutralize any leaked system prompts or developer instructions
+    if any(marker in lower_draft for marker in system_leakage_markers):
+        if is_indic:
+            return (
+                "Dhaba support se sampark karne ke liye dhanyawad. "
+                "Hum aapke request ki jaanch kar rahe hain aur jald hi update denge."
+            )
+        return (
+            "Thank you for reaching out to Dhaba support. "
+            "We have received your request and our team is actively reviewing your inquiry."
         )
-        if has_unauthorized_claim:
-            lang = (perception.detected_language or "en").lower()
-            if "hindi" in lang or "hinglish" in lang:
+
+    # 2. If policy did NOT authorize a refund, ensure no false execution claim was hallucinated
+    if not refund_result.should_refund:
+        if any(marker in lower_draft for marker in unauthorized_refund_markers):
+            if is_indic:
                 return (
                     "Hum aapke ticket aur transaction details ki jaanch kar rahe hain. "
                     "Hamari billing aur support team jald hi aapse sampark karegi."
@@ -59,6 +92,18 @@ def generate_final_reply(
                 "We have received your request and our support team is reviewing your billing "
                 "and account history. We will update you as soon as the review is complete."
             )
+
+    # 3. Guard against claims that subscription cancellation was executed externally
+    if any(marker in lower_draft for marker in unauthorized_cancellation_markers):
+        if is_indic:
+            return (
+                "Humne aapki cancellation request darj kar li hai aur future auto-renewal "
+                "rokne ke liye review kar rahe hain."
+            )
+        return (
+            "We have received your cancellation request and our support team is ensuring "
+            "that future auto-renewals are stopped."
+        )
 
     # 2. If policy DID authorize a refund, ensure customer is clearly informed
     if refund_result.should_refund:
