@@ -1,0 +1,122 @@
+{
+  "T-1001": {
+    "category": "billing",
+    "severity": "medium",
+    "user_requested_refund": true,
+    "claimed_issue": "User claims unauthorized monthly charge of 249 after trial and requests refund",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.95,
+    "draft_reply": "We understand you were surprised by the ₹249 monthly renewal following your ₹1 trial. Our billing team is reviewing your account history and renewal status."
+  },
+  "T-1002": {
+    "category": "technical",
+    "severity": "high",
+    "user_requested_refund": false,
+    "claimed_issue": "App crashes immediately on launch on Redmi Note 12 running Android 13",
+    "detected_language": "en",
+    "suggested_escalation": true,
+    "confidence": 0.98,
+    "draft_reply": "We apologize for the crash on your Redmi Note 12 after yesterday's update. Our engineering team is currently investigating this device-specific issue."
+  },
+  "T-1003": {
+    "category": "account",
+    "severity": "medium",
+    "user_requested_refund": false,
+    "claimed_issue": "User order history is missing after switching to a new phone on the same Google account",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.91,
+    "draft_reply": "We can help you restore your order history. Please verify you are logged into the same Google account on your new device and ensure cloud sync is active."
+  },
+  "T-1004": {
+    "category": "cancellation",
+    "severity": "low",
+    "user_requested_refund": false,
+    "claimed_issue": "Terse cancellation request for recently initiated trial subscription",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.85,
+    "draft_reply": "We have received your cancellation request. If you wish to cancel your subscription, we will ensure future auto-renewals are stopped."
+  },
+  "T-1005": {
+    "category": "billing",
+    "severity": "high",
+    "user_requested_refund": false,
+    "claimed_issue": "User debited 249 from bank account but premium plan not activated in the app",
+    "detected_language": "hinglish",
+    "suggested_escalation": true,
+    "confidence": 0.93,
+    "draft_reply": "Hum samajhte hain ki aapke bank se 249 kat gaye hain par app me plan activate nahi hua. Hum payment gateway se transaction verify karke jaldi solve kar rahe hain."
+  },
+  "T-1006": {
+    "category": "billing",
+    "severity": "high",
+    "user_requested_refund": true,
+    "claimed_issue": "Annual plan renewed for 1499 despite user disabling autopay in UPI app",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.96,
+    "draft_reply": "We understand you disabled autopay in your UPI app and were charged ₹1,499 for annual renewal. We are reviewing your transaction records regarding this charge."
+  },
+  "T-1007": {
+    "category": "feature_request",
+    "severity": "low",
+    "user_requested_refund": false,
+    "claimed_issue": "Customer requesting Marathi language support in the Dhaba app",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.98,
+    "draft_reply": "Thank you for using Dhaba and sharing your feedback! We have logged your request for Marathi language support with our product roadmap team."
+  },
+  "T-1008": {
+    "category": "complaint",
+    "severity": "critical",
+    "user_requested_refund": true,
+    "claimed_issue": "Elderly father charged three times without consent with threat of reporting to cyber cell",
+    "detected_language": "en",
+    "suggested_escalation": true,
+    "confidence": 0.96,
+    "draft_reply": "We take unauthorized transaction reports very seriously. Our senior compliance and customer support team is prioritizing this investigation immediately."
+  },
+  "T-1009": {
+    "category": "billing",
+    "severity": "medium",
+    "user_requested_refund": true,
+    "claimed_issue": "Customer claims they were charged 249 twice on the same calendar day",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.94,
+    "draft_reply": "We understand you are inquiring about being charged ₹249 twice today. We are reviewing your billing ledger to confirm the exact status of each transaction."
+  },
+  "T-1010": {
+    "category": "billing",
+    "severity": "low",
+    "user_requested_refund": false,
+    "claimed_issue": "Customer requesting a GST invoice for annual plan payment for corporate reimbursement",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.97,
+    "draft_reply": "Thank you for reaching out. We have noted your request and GST details for generating your tax invoice for business reimbursement."
+  },
+  "T-1011": {
+    "category": "general",
+    "severity": "low",
+    "user_requested_refund": false,
+    "claimed_issue": "Pre-sales inquiry asking whether premium features work offline",
+    "detected_language": "en",
+    "suggested_escalation": false,
+    "confidence": 0.91,
+    "draft_reply": "Thank you for your interest in Dhaba Premium. While some browsing features work offline, an active connection is required to sync and place orders."
+  },
+  "T-1012": {
+    "category": "complaint",
+    "severity": "high",
+    "user_requested_refund": true,
+    "claimed_issue": "Angry user threatening 1-star Play Store review demanding refund due to app dissatisfaction",
+    "detected_language": "en",
+    "suggested_escalation": true,
+    "confidence": 0.94,
+    "draft_reply": "We are very sorry that your experience did not meet expectations. We are reviewing your recent subscription charge and refund request right now."
+  }
+}
