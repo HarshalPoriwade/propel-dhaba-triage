@@ -289,4 +289,162 @@ class TestTriageEndpoint:
         assert "Traceback" not in detail
         assert detail == "An unexpected internal error occurred while processing the ticket."
 
+    def test_post_triage_circuit_breaker_outage_degrades_and_persists(self, temp_db, monkeypatch):
+        """Verify endpoint degrades safely during outage, trips circuit, fails fast, and persists."""
+        from app.core.resilience import reset_shared_circuit_breaker, get_circuit_breaker
+        from app.llm.base import LLMTimeoutError
+
+        reset_shared_circuit_breaker()
+
+        test_settings = Settings(
+            APP_NAME="Dhaba Resilience Test",
+            APP_ENV="testing",
+            MODEL_MODE="fixture",
+            DATABASE_PATH=temp_db,
+            LLM_FAILURE_THRESHOLD=2,
+            LLM_RECOVERY_SECONDS=30.0,
+            LLM_MAX_RETRIES=0,
+        )
+        application = create_app(test_settings)
+        test_client = TestClient(application)
+
+        call_counter = [0]
+
+        async def failing_generate(*args, **kwargs):
+            call_counter[0] += 1
+            raise LLMTimeoutError("Upstream provider timed out after 2.5s")
+
+        monkeypatch.setattr(
+            "app.llm.fixture.FixtureLLMProvider.generate_perception",
+            failing_generate,
+        )
+
+        ticket_1 = {
+            "id": "T-FAIL-1",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Outage ticket 1",
+            "body": "Body 1",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        ticket_2 = {
+            "id": "T-FAIL-2",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Outage ticket 2",
+            "body": "Body 2",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+        ticket_3 = {
+            "id": "T-FAST-FAIL-3",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "Outage ticket 3",
+            "body": "Body 3",
+            "purchases": [],
+            "app_opens_since_renewal": 0,
+        }
+
+        # Request 1: Provider fails -> returns degraded 200 OK
+        r1 = test_client.post("/triage", json=ticket_1)
+        assert r1.status_code == 200
+        d1 = r1.json()
+        assert d1["degraded"] is True
+        assert d1["needs_human"] is True
+        assert d1["confidence"] == 0.0
+        assert d1["refund"]["should_refund"] is False
+        assert d1["refund"]["amount_inr"] == 0
+        assert "timed out" not in d1["reply_draft"]
+        assert call_counter[0] == 1
+
+        # Request 2: Provider fails again -> trips circuit to OPEN
+        r2 = test_client.post("/triage", json=ticket_2)
+        assert r2.status_code == 200
+        assert r2.json()["degraded"] is True
+        assert call_counter[0] == 2
+
+        # Request 3: Circuit is OPEN -> fails fast WITHOUT calling provider!
+        r3 = test_client.post("/triage", json=ticket_3)
+        assert r3.status_code == 200
+        d3 = r3.json()
+        assert d3["degraded"] is True
+        assert d3["needs_human"] is True
+        assert d3["confidence"] == 0.0
+        assert call_counter[0] == 2  # Provider call count DID NOT INCREASE
+
+        # Verify degraded result is stored in SQLite repository
+        repo = TriageRepository(db_path=temp_db)
+        record = repo.get_record("T-FAST-FAIL-3")
+        assert record is not None
+        assert record.status == ProcessingStatus.COMPLETED
+
+        # Verify idempotency on degraded record (duplicate request returns stored result)
+        r3_dup = test_client.post("/triage", json=ticket_3)
+        assert r3_dup.status_code == 200
+        assert r3_dup.json() == d3
+        assert call_counter[0] == 2
+
+        reset_shared_circuit_breaker()
+
+    def test_post_triage_degraded_never_authorizes_refund_even_with_financial_evidence(
+        self, temp_db, monkeypatch
+    ):
+        """Verify degraded mode never authorizes funds even if ticket has verified purchases."""
+        from app.core.resilience import reset_shared_circuit_breaker
+        from app.llm.base import LLMResponseError
+
+        reset_shared_circuit_breaker()
+
+        test_settings = Settings(
+            APP_NAME="Dhaba Resilience Test",
+            APP_ENV="testing",
+            MODEL_MODE="fixture",
+            DATABASE_PATH=temp_db,
+            LLM_FAILURE_THRESHOLD=1,
+        )
+        application = create_app(test_settings)
+        test_client = TestClient(application)
+
+        async def failing_generate(*args, **kwargs):
+            raise LLMResponseError("HTTP 503 Provider Down")
+
+        monkeypatch.setattr(
+            "app.llm.fixture.FixtureLLMProvider.generate_perception",
+            failing_generate,
+        )
+
+        ticket_payload = {
+            "id": "T-FINANCIAL-OUTAGE",
+            "received_at": "2026-09-02T09:14:00+05:30",
+            "subject": "annual plan renewal refund please",
+            "body": "charged 1499 for annual plan. please refund my money immediately.",
+            "purchases": [
+                {
+                    "id": "pay_BIG",
+                    "type": "renewal",
+                    "amount_inr": 1499,
+                    "status": "successful",
+                    "at": "2026-09-02T09:00:00+05:30",
+                }
+            ],
+            "app_opens_since_renewal": 0,
+        }
+
+        resp = test_client.post("/triage", json=ticket_payload)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["degraded"] is True
+        assert data["needs_human"] is True
+        # Must not authorize any refund during degraded processing
+        assert data["refund"]["should_refund"] is False
+        assert data["refund"]["amount_inr"] == 0
+        # Must not claim refund execution in reply
+        reply = data["reply_draft"].lower()
+        assert "refund executed" not in reply
+        assert "money returned" not in reply
+        assert "reversed" not in reply
+
+        reset_shared_circuit_breaker()
+
+
 

@@ -46,7 +46,22 @@ class Settings(BaseSettings):
     MODEL_TIMEOUT_SECONDS: float = Field(
         default=2.5,
         gt=0.0,
+        description="Upstream model call timeout in seconds (alias for LLM_TIMEOUT_SECONDS)",
+    )
+    LLM_TIMEOUT_SECONDS: float = Field(
+        default=2.5,
+        gt=0.0,
         description="Upstream model call timeout in seconds",
+    )
+    LLM_FAILURE_THRESHOLD: int = Field(
+        default=5,
+        gt=0,
+        description="Consecutive failure threshold to trip the circuit breaker open",
+    )
+    LLM_RECOVERY_SECONDS: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Cooldown window in seconds before attempting a probe request when circuit is open",
     )
     LLM_MAX_CONCURRENCY: int = Field(
         default=20,
@@ -86,6 +101,11 @@ class Settings(BaseSettings):
         """Ensure an API key is supplied if live model mode is requested."""
         if self.MODEL_MODE == "live" and (not self.MODEL_API_KEY or not self.MODEL_API_KEY.strip()):
             raise ValueError("MODEL_API_KEY is required when MODEL_MODE is set to 'live'")
+        # Keep MODEL_TIMEOUT_SECONDS and LLM_TIMEOUT_SECONDS synchronized
+        if self.LLM_TIMEOUT_SECONDS != 2.5 and self.MODEL_TIMEOUT_SECONDS == 2.5:
+            object.__setattr__(self, "MODEL_TIMEOUT_SECONDS", self.LLM_TIMEOUT_SECONDS)
+        elif self.MODEL_TIMEOUT_SECONDS != 2.5 and self.LLM_TIMEOUT_SECONDS == 2.5:
+            object.__setattr__(self, "LLM_TIMEOUT_SECONDS", self.MODEL_TIMEOUT_SECONDS)
         return self
 
 

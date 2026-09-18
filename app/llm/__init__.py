@@ -3,6 +3,12 @@
 from typing import Optional
 
 from app.core.config import Settings, get_settings
+from app.core.resilience import (
+    CircuitBreaker,
+    CircuitState,
+    get_circuit_breaker,
+    reset_shared_circuit_breaker,
+)
 from app.llm.base import (
     BaseLLMProvider,
     LLMConfigurationError,
@@ -50,7 +56,7 @@ def get_llm_provider(settings: Optional[Settings] = None) -> BaseLLMProvider:
             api_key=settings.MODEL_API_KEY,
             model_name=settings.MODEL_NAME,
             base_url=settings.MODEL_BASE_URL,
-            timeout_seconds=settings.MODEL_TIMEOUT_SECONDS,
+            timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
         )
 
     raise LLMConfigurationError(f"Unsupported MODEL_MODE: '{settings.MODEL_MODE}'")
@@ -59,15 +65,17 @@ def get_llm_provider(settings: Optional[Settings] = None) -> BaseLLMProvider:
 def get_perception_pipeline(
     settings: Optional[Settings] = None,
     provider: Optional[BaseLLMProvider] = None,
+    circuit_breaker: Optional[CircuitBreaker] = None,
 ) -> PerceptionPipeline:
     """Factory constructing the resilient perception pipeline wrapping a provider.
 
     Args:
         settings: Application settings. If None, resolves from get_settings().
         provider: Optional explicit provider instance.
+        circuit_breaker: Optional explicit CircuitBreaker instance.
 
     Returns:
-        PerceptionPipeline with bounded retries and deterministic fallback.
+        PerceptionPipeline with bounded retries, circuit breaker protection, and deterministic fallback.
     """
     if settings is None:
         settings = get_settings()
@@ -75,11 +83,20 @@ def get_perception_pipeline(
     if provider is None:
         provider = get_llm_provider(settings)
 
-    return PerceptionPipeline(provider=provider, max_retries=settings.LLM_MAX_RETRIES)
+    if circuit_breaker is None:
+        circuit_breaker = get_circuit_breaker(settings)
+
+    return PerceptionPipeline(
+        provider=provider,
+        max_retries=settings.LLM_MAX_RETRIES,
+        circuit_breaker=circuit_breaker,
+    )
 
 
 __all__ = [
     "BaseLLMProvider",
+    "CircuitBreaker",
+    "CircuitState",
     "FixtureLLMProvider",
     "LiveLLMProvider",
     "LLMConfigurationError",
@@ -96,8 +113,10 @@ __all__ = [
     "build_retry_messages",
     "build_ticket_user_prompt",
     "create_fallback_perception",
+    "get_circuit_breaker",
     "get_llm_provider",
     "get_perception_pipeline",
     "parse_llm_perception",
+    "reset_shared_circuit_breaker",
     "validate_llm_perception",
 ]
