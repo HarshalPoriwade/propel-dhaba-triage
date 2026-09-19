@@ -47,7 +47,7 @@ flowchart TD
 ### Layer Breakdown
 
 1. **API Layer (`app/api/triage.py`, `app/main.py`)**:
-   - Exposes `POST /triage` and `GET /health`.
+   - Exposes `POST /triage`, `GET /health`, and `GET /` (redirects to `/docs` in non-prod).
    - Ingests inbound `X-Request-ID` or generates a UUID correlation ID stored in an async-safe `ContextVar`.
    - Catches unhandled exceptions and maps domain errors to standard HTTP status codes (`409 Conflict` for in-progress claims, `422 Unprocessable Entity` for malformed payloads).
 
@@ -439,6 +439,12 @@ Interactive OpenAPI documentation will be accessible at: [http://127.0.0.1:8000/
 
 ### 5. Interacting with the API
 
+#### Root / API Documentation Landing
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8000/ -Method GET
+```
+*(In development, automatically redirects HTTP 307 to `/docs`; in production, returns `{"status": "ok"}`).*
+
 #### Health Check
 ```powershell
 Invoke-RestMethod -Uri http://127.0.0.1:8000/health -Method GET
@@ -493,7 +499,7 @@ curl -X POST http://127.0.0.1:8000/triage \
 ## Testing & Quality Assurance
 
 ### Running the Test Suite
-To run all 149 automated tests:
+To run all 151 automated tests:
 ```powershell
 pytest
 ```
@@ -504,26 +510,26 @@ pytest tests/replay/test_all_tickets.py -v
 ```
 
 ### Test Suite Summary
-- **Total Tests:** 149 passed, 1 warning (in ~1.95s).
+- **Total Tests:** 151 passed, 1 warning (in ~2.0s).
 - **Deprecation Warning Notice:** 1 warning from `starlette.testclient` (`DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated`). This warning originates inside third-party dependencies (`starlette`/`anyio`), not repository code.
 
 ```
 ============================= test session starts =============================
 platform win32 -- Python 3.10.11, pytest-8.4.2, pluggy-1.6.0
-collected 149 items
+collected 151 items
 
 tests\replay\test_all_tickets.py ..                                      [  1%]
-tests\test_scaffolding.py ......                                         [  5%]
-tests\unit\test_domain_models.py ......                                  [  9%]
-tests\unit\test_llm_provider.py .......................................  [ 35%]
-tests\unit\test_llm_schema.py ...................                        [ 48%]
+tests\test_scaffolding.py ........                                       [  6%]
+tests\unit\test_domain_models.py ......                                  [ 10%]
+tests\unit\test_llm_provider.py .......................................  [ 36%]
+tests\unit\test_llm_schema.py ...................                        [ 49%]
 tests\unit\test_persistence.py ..........                                [ 55%]
 tests\unit\test_refund_policy.py ...........................             [ 73%]
 tests\unit\test_request_schema.py ...............                        [ 83%]
 tests\unit\test_response_schema.py .....                                 [ 86%]
 tests\unit\test_triage_endpoint.py ....................                  [100%]
 
-======================= 149 passed, 1 warning in 1.95s ========================
+======================= 151 passed, 1 warning in 2.09s ========================
 ```
 
 #### Test Coverage Categories
