@@ -5,7 +5,7 @@ from typing import Optional
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.triage import router as triage_router
 from app.core.config import Settings, get_settings
@@ -80,6 +80,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             content={"detail": "An unexpected internal error occurred while processing the ticket."},
             headers={"X-Request-ID": get_request_id()},
         )
+
+    # Root endpoint: redirects to interactive OpenAPI docs in non-production
+    @application.get("/", include_in_schema=False)
+    async def root():
+        if settings.APP_ENV != "production":
+            return RedirectResponse(url="/docs")
+        return {"app": settings.APP_NAME, "status": "ok"}
 
     # Lightweight health check exposing service readiness and circuit state without calling upstream LLM
     @application.get("/health", tags=["health"])

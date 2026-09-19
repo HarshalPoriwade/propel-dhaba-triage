@@ -1,7 +1,6 @@
 """Semantic validation for structured LLM perception outputs."""
 
 import re
-from typing import Set
 
 from app.llm.base import LLMSemanticValidationError
 from app.schemas.llm import LLMPerceptionOutput

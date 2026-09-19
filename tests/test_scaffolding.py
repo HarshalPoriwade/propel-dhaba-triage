@@ -56,3 +56,25 @@ def test_exported_app_instance():
     """Verify the module-level exported app is a valid FastAPI instance."""
     assert isinstance(app, FastAPI)
     assert app.title == "Dhaba Support Triage Service"
+
+
+def test_root_endpoint_redirects_non_production():
+    """Verify GET / redirects to /docs when not in production."""
+    from fastapi.testclient import TestClient
+    dev_settings = Settings(APP_ENV="development")
+    dev_app = create_app(dev_settings)
+    client = TestClient(dev_app)
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+
+
+def test_root_endpoint_returns_json_in_production():
+    """Verify GET / returns JSON status in production where docs are disabled."""
+    from fastapi.testclient import TestClient
+    prod_settings = Settings(APP_ENV="production")
+    prod_app = create_app(prod_settings)
+    client = TestClient(prod_app)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"

@@ -291,7 +291,7 @@ class TestTriageEndpoint:
 
     def test_post_triage_circuit_breaker_outage_degrades_and_persists(self, temp_db, monkeypatch):
         """Verify endpoint degrades safely during outage, trips circuit, fails fast, and persists."""
-        from app.core.resilience import reset_shared_circuit_breaker, get_circuit_breaker
+        from app.core.resilience import reset_shared_circuit_breaker
         from app.llm.base import LLMTimeoutError
 
         reset_shared_circuit_breaker()
